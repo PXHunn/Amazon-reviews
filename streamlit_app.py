@@ -1,58 +1,150 @@
 # -*- coding: utf-8 -*-
 
+import pandas as pd
 import numpy as np
+import scipy.sparse
+import csv
+
 import pickle
 import streamlit as st
-loaded_model = pickle.load(open('best_logreg_model.pkl','rb'))
 
-# After this line didn't edited!!
-#creating function
-def loan_prediction(input_data):
+from keras.models import load_model
+
+######################################### LOAD DỮ LIỆU VÀ MÔ HÌNH ###########################################
+
+################################ Load danh sách stop word ###################################################
+stop_words = list(pd.read_csv('/data/stop_words.csv'))
+
+################################ Load các mô hình tiền xử lý ################################################
+def analyzer(x):
+    return x
+
+# Mô hình tiền xử lý ngôn ngữ của Spacy (dùng cho kỹ thuật Lemmatization)
+with open('/models/preprocessing/spacy_nlp.pkl', 'rb') as f:
+    spacy_nlp = pickle.load(f)
+
+# Mô hình tạo các từ ghép 2 chữ (Bigrams)
+with open('/models/preprocessing/bigrams_phraser.pkl', 'rb') as f:
+    bigrams_phraser = pickle.load(f)
     
+# Mô hình tạo các từ ghép 3 chữ (Trigrams)
+with open('/models/preprocessing/trigrams_phraser.pkl', 'rb') as f:
+    trigrams_phraser = pickle.load(f)
 
-    # changing the input_data to numpy array
-    input_data_as_numpy_array = np.asarray(input_data)
+# Mô hình vectơ hóa bằng kỹ thuật Bag of Word
+with open('/models/preprocessing/bow_vectorizer.pkl', 'rb') as f:
+    bow_vectorizer = pickle.load(f)
+    
+# Mô hình vectơ hóa bằng kỹ thuật TF-IDF
+with open('/models/preprocessing/tfidf_vectorizer.pkl', 'rb') as f:
+    tfidf_vectorizer = pickle.load(f)
 
-    # reshape the array as we are predicting for one instance
-    input_data_reshaped = input_data_as_numpy_array.reshape(1,-1)
+################################ Load các mô hình học máy ################################################
+# Tên mô hình
+model_names = ['SVM', 
+               'DecisionTree', 
+               'RandomForest', 
+               'LogisticRegression', 
+               'NaiveBayes']
 
-    prediction = loaded_model.predict(input_data_reshaped)
-    print(prediction)
+# Load các mô hình học máy cho bộ dữ liệu Bag of Word
+bow_models = {}
+for name in model_names:
+    with open(classify_dir+'/models/classification/bow_'+name+'.pkl', 'rb') as file:
+        bow_models[name] = pickle.load(file)
 
-    if (prediction[0] == 0):
-      return "Don't loan!"
+# Load các mô hình học máy cho bộ dữ liệu TF-IDF
+tfidf_models = {}
+for name in model_names:
+    with open('/models/classification/tfidf_'+name+'.pkl', 'rb') as file:
+        tfidf_models[name] = pickle.load(file)
+
+################################ Load các mô hình cho học sâu ###############################################
+# Load mô hình Encode mã hóa tập nhãn
+with open('/models/classification/label_encoder.pkl', 'rb') as file:
+    label_encoder = pickle.load(file)
+
+# Load 2 mô hình Deep Neural Network
+dnn_bow = load_model(classify_dir+'/models/classification/dnn_bow.keras')
+dnn_tfidf = load_model(classify_dir+'/models/classification/dnn_tfidf.keras')
+
+
+################ TẠO CÁC HÀM #####################
+# Hàm tiền xử lý văn bản
+def preprocess_corpus(corpus)
+    # Thực hiện kỹ thuật Lemmatization
+    doc = spacy_nlp(corpus)
+    lemmatized_tokens = [token.lemma_ for token in doc]
+
+    # Loại bỏ stop_words
+    nostop_tokens = []
+    for word in lemmatized_tokens:
+        w = word.lower()
+        if w.lower() not in stop_words and w.isalpha():
+            nostop_tokens.append(w)
+
+    # Phân tích Bigrams và Trigrams
+    bigrams = list(bigrams_phraser[nostop_tokens])
+    trigrams = list(trigrams_phraser[bigrams])
+    return trigrams
+
+# Hàm vector hóa văn bản
+def vectorize(trigrams,text_model):
+    if text_model == 'Bag of Words':
+        bow_vector = bow_vectorizer.transform([trigrams])
+        return bow_vector
+    if text_model == 'TF-IDF':
+        tfidf_vector = tfidf_vectorizer.transform([trigrams])
+        return tfidf_vector
+
+# Hàm dự đoán
+def label_prediction(vector,text_model,class_model):
+    
+    if class_model == 'Deep Neural Network':
+        if text_model == 'Bag of Words':
+            vector.sort_indices()
+            prediction = dnn_bow.predict(vector)
+            y_int_inverse = np.argmax(prediction, axis=1)
+            label = label_encoder.inverse_transform(y_int_inverse)
+            return label[0]
+        if text_model == 'TF-IDF':
+            vector.sort_indices()
+            prediction = dnn_tfidf.predict(vector)
+            y_int_inverse = np.argmax(prediction, axis=1)
+            label = label_encoder.inverse_transform(y_int_inverse)
+            return label[0]
     else:
-      return 'Loans!'
-    
-
-    
+        if text_model == 'Bag of Words':
+            label = bow_models[class_model].predict(vector)
+            return label[0]
+        if text_model == 'TF-IDF':
+            label = tfidf_models[class_model].predict(vector)
+            return label[0] 
     
 def main():
     
-    st.title('Loan Prediction')
+    st.title('Review Prediction')
     
-    
-    
-    Pregnancies=st.slider('Number of Pregnancies',min_value=0,max_value=20,value=4,step=1)
-    Glucose=st.slider('Glucose level',min_value=0,max_value=199,value=60,step=1)
-    BloodPressure=st.slider('BloodPressure level in mm Hg',min_value=0,max_value=140,value=80,step=1)
-    SkinThickness=st.slider('SkinThickness in mm',min_value=0,max_value=100,value=40,step=1)
-    Insulin=st.slider('Insulin level in mu U/ml',min_value=0,max_value=1000,value=400,step=1)
-    BMI=st.slider('BMI value',min_value=0.0,max_value=70.0,value=33.3,step=0.01)
-    DiabetesPedigreeFunction=st.slider('Diabetes Pedigree Function value',min_value=0.000, step=0.001, max_value=3.0, value=0.045, format="%3f")
-    Age=st.slider('Age of a person',min_value=10,max_value=100,value=21,step=1)
-   
-    
-   
-    diagnosis = ''
-    if st.button('Loan Test Result'):
-        loan_status = loan_prediction([Pregnancies,Glucose,BloodPressure,SkinThickness,Insulin,BMI,DiabetesPedigreeFunction,Age])
+    corpus = st.text_area()
+    text_model = st.radio(
+        'Choose the model for text preprocessing',
+        ['Bag of Words','TF-IDF'])
+    class_model = st.selectbox(
+        'Choose the model for classification',
+        ('SVM','DecisionTree','RandomForest','LogisticRegression','NaiveBayes''Deep Neural Network'),
+        index=None,
+        placeholder='Select classification model...')
+
+    if st.button('Predict!'):
+        trigrams = preprocess_corpus(corpus)
+        vector = vectorize(trigrams,text_model)
+        label = loan_prediction(vector,text_model,class_model)
         
-    st.success(loan_status)    
+    st.success(label)    
     
 
 
 if __name__ == '__main__':
-     main()    
+    main()    
     
     
